@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useLocation } from "react-router-dom";
 import QRCode from "qrcode";
 import useFacebookPixel from "@/hooks/useFacebookPixel";
+import { supabase } from "@/lib/supabase";
 
 interface ApiResponse {
   success: boolean;
@@ -86,57 +87,28 @@ const Pagamento = () => {
         const cpf = data.cpf.replace(/\D/g, '');
         const customerName = data.nome || 'Usuário Desconhecido';
 
-        // Preparar dados para API de pagamento
-        const valorCents = Math.round(data.total * 100);
-        const telefone = data.celular || '21965152545';
-        const email = data.email || `${cpf}@gmail.com`;
-
-        const chavePublica = 'sk_EfD_WUQKlfTW036UCMT_fg8id2a_yPbnwMCkGq8rYlzU6tPA';
-        const chaveSecreta = 'pk_f7eY81rPHeiAP-DwaWrf333K5GWo5r1u_4lD42ZaYWgyQziU';
-        const auth = btoa(`${chavePublica}:${chaveSecreta}`);
-
-        const paymentData = {
-          amount: valorCents,
-          paymentMethod: "pix",
-          customer: {
-            name: customerName,
-            email: email,
-            document: {
-              number: cpf,
-              type: "cpf"
+        // Chamar edge function para criar pagamento PIX
+        const { data: paymentData, error } = await supabase.functions.invoke('create-pix-payment', {
+          body: {
+            customerData: {
+              nome: customerName,
+              cpf: data.cpf,
+              celular: data.celular,
+              email: data.email
             },
-            phone: telefone,
-            externalRef: `ref-${cpf}`
-          },
-          pix: {
-            expiresInDays: 1
-          },
-          items: [
-            {
-              title: "COLORIAÊ - Livro Infantil",
-              unitPrice: valorCents,
-              quantity: 1,
-              tangible: false
-            }
-          ]
-        };
-
-        // Chamar API de pagamento
-        const paymentResponse = await fetch('https://api.novaera-pagamentos.com/api/v1/transactions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Basic ${auth}`,
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify(paymentData)
+            total: data.total
+          }
         });
 
-        if (!paymentResponse.ok) {
-          throw new Error(`Erro na API: ${paymentResponse.status}`);
+        if (error) {
+          throw new Error(error.message || 'Erro ao criar pagamento');
         }
 
-        const apiResponse: ApiResponse = await paymentResponse.json();
+        if (!paymentData.success) {
+          throw new Error(paymentData.message || 'Erro ao processar pagamento');
+        }
+
+        const apiResponse: ApiResponse = paymentData;
 
         // Gerar QR Code
         const qrUrl = await QRCode.toDataURL(apiResponse.data.pix.qrcode);
@@ -168,24 +140,16 @@ const Pagamento = () => {
   // Função para verificar status do pagamento
   const checkPaymentStatus = async (transactionId: number, cpf: string) => {
     try {
-      const chavePublica = 'sk_EfD_WUQKlfTW036UCMT_fg8id2a_yPbnwMCkGq8rYlzU6tPA';
-      const chaveSecreta = 'pk_f7eY81rPHeiAP-DwaWrf333K5GWo5r1u_4lD42ZaYWgyQziU';
-      const auth = btoa(`${chavePublica}:${chaveSecreta}`);
-
-      const response = await fetch(`https://api.novaera-pagamentos.com/api/v1/transactions/${transactionId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Accept': 'application/json'
-        }
+      const { data: statusData, error } = await supabase.functions.invoke('check-payment-status', {
+        body: { transactionId }
       });
 
-      if (!response.ok) {
-        throw new Error(`Erro na API: ${response.status}`);
+      if (error) {
+        console.error('Erro ao verificar status:', error);
+        return 'pending';
       }
 
-      const data = await response.json();
-      return data.data?.status || 'pending';
+      return statusData?.status || 'pending';
     } catch (error) {
       console.error('Erro ao verificar status:', error);
       return 'pending';
