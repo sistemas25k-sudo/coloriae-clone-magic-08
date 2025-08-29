@@ -56,7 +56,6 @@ export const ProductInfo = () => {
           <span className="bg-red-500 text-white text-xs px-2 py-1 rounded">-44%</span>
         </div>
         <div className="text-3xl font-bold text-coloriae-price">R$ 167,00</div>
-        <p className="text-sm text-blue-600 underline cursor-pointer">Ver opções de parcelamento</p>
       </div>
 
       <div>
